@@ -72,6 +72,8 @@ def evaluate():
         raise FileNotFoundError(f"Character map not found: {args.char_map}")
     if not os.path.exists(args.model_path):
         raise FileNotFoundError(f"Model weights not found: {args.model_path}")
+    if not os.path.exists(args.test_file):
+        raise FileNotFoundError(f"Test file not found: {args.test_file}")
 
     char_map = CharacterMap()
     char_map.load_map(args.char_map)

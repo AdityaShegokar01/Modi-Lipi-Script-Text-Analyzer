@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 from PIL import Image
 
 try:
@@ -7,6 +8,7 @@ try:
 except Exception:
     PaddleOCR = None
 
+PADDLEOCR_LANG = os.getenv("PADDLEOCR_LANG", "en")
 _paddleocr_instance = None
 
 def _get_paddleocr():
@@ -14,7 +16,7 @@ def _get_paddleocr():
     if PaddleOCR is None:
         return None
     if _paddleocr_instance is None:
-        _paddleocr_instance = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+        _paddleocr_instance = PaddleOCR(use_angle_cls=False, lang=PADDLEOCR_LANG, show_log=False)
     return _paddleocr_instance
 
 def _deskew_image(gray):
@@ -210,7 +212,9 @@ def extract_line_images(image_input, padding=4, method="auto", deskew=True):
         else:
             gray = image_input.copy()
     else:
-        raise TypeError(f"Unsupported image type: {type(image_input)}")
+        raise TypeError(
+            f"Unsupported image type: {type(image_input)}. Expected PIL.Image or numpy.ndarray."
+        )
 
     if deskew:
         gray = _deskew_image(gray)

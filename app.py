@@ -36,6 +36,9 @@ RNN_HIDDEN_SIZE = 512
 MODEL_PATH = os.path.join('models', 'best_model.pth')
 CHAR_MAP_PATH = 'char_map.json'
 API_KEY_FILE = 'api_key.txt'
+# Line detection options:
+#   LINE_DETECTION_METHOD: "auto" (default), "paddleocr", or "opencv"
+#   LINE_DETECTION_DESKEW: "true"/"false" to enable or disable deskewing
 LINE_DETECTION_METHOD = os.getenv("LINE_DETECTION_METHOD", "auto")
 LINE_DETECTION_DESKEW = os.getenv("LINE_DETECTION_DESKEW", "true").lower() in {"1", "true", "yes"}
 

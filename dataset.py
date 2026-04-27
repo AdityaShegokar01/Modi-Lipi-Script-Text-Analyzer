@@ -146,6 +146,7 @@ class OCRDataset(Dataset):
             raise
 
         augment_transforms = []
+        tensor_augment_transforms = []
         if augment:
             augment_transforms = [
                 T.RandomApply([T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.3),
@@ -153,12 +154,15 @@ class OCRDataset(Dataset):
                 T.RandomApply([T.RandomAffine(degrees=2, translate=(0.02, 0.02), shear=2, fill=0)], p=0.3),
                 T.RandomPerspective(distortion_scale=0.2, p=0.3),
             ]
+            tensor_augment_transforms = [
+                AddGaussianNoise(mean=0.0, std=0.05, p=0.3)
+            ]
 
         self.transform = T.Compose([
             T.Grayscale(num_output_channels=channels),
             *augment_transforms,
             ResizeAndPad(height=img_height, max_width=max_img_width, channels=channels),
-            AddGaussianNoise(mean=0.0, std=0.05, p=0.3) if augment else T.Lambda(lambda x: x),
+            *tensor_augment_transforms,
             T.Normalize(mean=[0.5], std=[0.5]) # Normalize to [-1, 1]
         ])
 

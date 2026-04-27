@@ -198,6 +198,7 @@ install PaddleOCR and set an environment variable before running the app:
 ```
 pip install paddleocr
 export LINE_DETECTION_METHOD=paddleocr
+export PADDLEOCR_LANG=en
 ```
 
 To disable deskewing, set:

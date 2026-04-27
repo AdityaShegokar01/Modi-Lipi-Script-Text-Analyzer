@@ -1,9 +1,11 @@
 torch
 torchvision
 flask
+flask-cors
 pillow
 numpy
 opencv-python
 unicodedata2
 google-generativeai
 pandas
+requests

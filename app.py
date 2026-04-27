@@ -1,3 +1,4 @@
+import logging
 import os
 import codecs
 import time
@@ -23,6 +24,13 @@ except ImportError:
     print("="*50)
     exit(1)
 
+# Import the layout analysis module for full-page OCR
+try:
+    from layout_analysis import extract_line_crops
+    LAYOUT_ANALYSIS_AVAILABLE = True
+except ImportError:
+    LAYOUT_ANALYSIS_AVAILABLE = False
+
 
 # --- Configuration ---
 # Model parameters (MUST MATCH train.py)
@@ -36,9 +44,22 @@ MODEL_PATH = os.path.join('models', 'best_model.pth')
 CHAR_MAP_PATH = 'char_map.json'
 API_KEY_FILE = 'api_key.txt'
 
+# Supported target languages for translation
+SUPPORTED_LANGUAGES = [
+    "English", "Marathi", "Hindi", "Spanish", "French",
+    "German", "Portuguese", "Arabic", "Chinese", "Japanese",
+    "Urdu", "Bengali", "Tamil", "Telugu", "Gujarati", "Kannada",
+]
+
 # --- App Setup ---
 app = Flask(__name__)
 CORS(app)  # Allow all origins for simplicity
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 # --- Global variables for AI models ---
 device = None
@@ -115,57 +136,106 @@ def load_api_key():
         app.logger.error(f"FATAL: {API_KEY_FILE} not found. Please create it.")
         return False
 
+
+def _decode_crnn_output(outputs):
+    """
+    Greedy CTC decode from CRNN output tensor.
+
+    Parameters
+    ----------
+    outputs : torch.Tensor  shape (seq_len, 1, nclass)
+
+    Returns
+    -------
+    str  – decoded Devanagari text (NFC-normalised)
+    """
+    pred_indices = torch.argmax(outputs, dim=2)
+    pred_indices = pred_indices.t().cpu().numpy()[0]
+
+    decoded_text = []
+    last_char = None
+    for idx in pred_indices:
+        if idx == 0:          # CTC <BLANK> token
+            last_char = None
+            continue
+        char = char_map.int_to_char.get(idx, '?')
+        if char != last_char:
+            decoded_text.append(char)
+        last_char = char
+
+    return unicodedata.normalize('NFC', "".join(decoded_text))
+
+
 def predict_ocr(image_file_storage):
     """
-    Performs OCR on an uploaded image file storage.
+    Performs full-page OCR on an uploaded image.
+
+    When the layout_analysis module is available the image is split into
+    individual text lines, each line is recognised by the CRNN, and the
+    results are joined with newline characters.  If layout analysis is not
+    available (import failed) the original single-image path is used as a
+    safe fallback.
+
+    Parameters
+    ----------
+    image_file_storage : werkzeug.datastructures.FileStorage
+        The uploaded image file.
+
+    Returns
+    -------
+    Tuple[str | None, str | None]
+        (recognised_text, error_message) – one of the two will be None.
     """
+    # --- Open source image ---
     try:
-        image = Image.open(image_file_storage).convert('L')
+        pil_image = Image.open(image_file_storage)
     except Exception as e:
         app.logger.error(f"Failed to open image: {e}")
         return None, "Invalid image file"
 
-    try:
-        # Apply the same transformations as in training
-        image_tensor = transform(image).to(device)
-        
-        # Add a batch dimension
-        image_tensor = image_tensor.unsqueeze(0)
-        
-        with torch.no_grad():
-            outputs = model(image_tensor)
-        
-        # Decode the output
-        # (seq_len, batch, nclass)
-        pred_indices = torch.argmax(outputs, dim=2)
-        # (seq_len, 1)
-        
-        pred_indices = pred_indices.t().cpu().numpy()[0] # Get first item in batch
-        
-        decoded_text = []
-        last_char = None
-        for idx in pred_indices:
-            if idx == 0: # 0 is the CTC <BLANK> token
-                last_char = None
-                continue
-            
-            char = char_map.int_to_char.get(idx, '?')
-            
-            if char != last_char:
-                decoded_text.append(char)
-            last_char = char
-        
-        final_text = "".join(decoded_text)
-        # Normalize the final output
-        final_text = unicodedata.normalize('NFC', final_text)
-        
-        return final_text, None
+    # --- Decide processing path ---
+    if LAYOUT_ANALYSIS_AVAILABLE:
+        try:
+            line_crops = extract_line_crops(pil_image)
+            app.logger.info(f"Layout analysis produced {len(line_crops)} line crop(s).")
+        except Exception as e:
+            app.logger.warning(
+                f"Layout analysis failed ({e}); falling back to single-image mode."
+            )
+            line_crops = [pil_image.convert("L")]
+    else:
+        app.logger.warning(
+            "layout_analysis module not available; using single-image mode."
+        )
+        line_crops = [pil_image.convert("L")]
 
-    except Exception as e:
-        app.logger.error(f"Error during OCR prediction: {e}")
-        return None, "Error during model prediction."
+    # --- Run CRNN on every line crop ---
+    line_texts = []
+    for idx, crop in enumerate(line_crops):
+        try:
+            image_tensor = transform(crop).to(device)
+            image_tensor = image_tensor.unsqueeze(0)   # add batch dim
 
-# --- Gemini API Helper (with backoff) ---
+            with torch.no_grad():
+                outputs = model(image_tensor)
+
+            line_text = _decode_crnn_output(outputs)
+            if line_text.strip():
+                line_texts.append(line_text)
+                app.logger.debug(f"  Line {idx + 1}: {line_text!r}")
+        except Exception as e:
+            app.logger.warning(f"OCR failed on line {idx + 1}: {e}; skipping.")
+
+    if not line_texts:
+        app.logger.warning("No text recognised from any line crop.")
+        return "", None
+
+    full_text = "\n".join(line_texts)
+    app.logger.info(f"OCR complete. {len(line_texts)} line(s) recognised.")
+    return full_text, None
+
+
+# --- Gemini API Helper (with exponential backoff) ---
 def fetch_gemini_with_backoff(api_url, payload, retries=5, delay=1):
     headers = {'Content-Type': 'application/json'}
     for i in range(retries):
@@ -187,16 +257,18 @@ def fetch_gemini_with_backoff(api_url, payload, retries=5, delay=1):
     
     return {"error": "Failed to connect to Gemini API after all retries."}
 
+
 # --- API Endpoints ---
 @app.route('/')
 def serve_index():
-    # Helper to serve the HTML file
     return send_from_directory('.', 'index.html')
+
 
 @app.route('/api/get-text-for-upload', methods=['POST'])
 def get_text_for_upload_route():
     """
-    API endpoint that accepts a file upload, performs OCR, and returns text.
+    Accepts a file upload, runs full-page OCR, and returns the transcribed
+    Devanagari text.
     """
     app.logger.info("Received request at /api/get-text-for-upload")
     if 'image_file' not in request.files:
@@ -210,7 +282,6 @@ def get_text_for_upload_route():
         png_filename = secure_filename(file.filename)
         app.logger.info(f"Processing uploaded file: {png_filename}")
         
-        # Perform OCR
         extracted_text, error_msg = predict_ocr(file)
         
         if error_msg:
@@ -224,10 +295,109 @@ def get_text_for_upload_route():
 
     return jsonify({"error": "Unknown error processing file upload"}), 500
 
+
+@app.route('/api/translate', methods=['POST'])
+def translate_route():
+    """
+    Translates the provided Devanagari text (OCR output) into the user's
+    chosen target language using the Gemini API.
+
+    Expected JSON body:
+    {
+        "devanagari_text": "<Devanagari text from OCR>",
+        "target_language": "<e.g. English, Marathi, Hindi, Spanish …>"
+    }
+    """
+    app.logger.info("Received request at /api/translate")
+
+    if not gemini_api_key:
+        app.logger.error("API Key is missing or was not loaded.")
+        return jsonify({"error": "Server is missing Gemini API key"}), 500
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON data provided"}), 400
+
+    devanagari_text = data.get('devanagari_text', '').strip()
+    target_language = data.get('target_language', 'English').strip()
+
+    if not devanagari_text:
+        return jsonify({"error": "Missing 'devanagari_text'"}), 400
+
+    # Validate / sanitise the target language to avoid prompt injection
+    if target_language not in SUPPORTED_LANGUAGES:
+        app.logger.warning(
+            f"Unsupported target language '{target_language}'; defaulting to English."
+        )
+        target_language = "English"
+
+    api_url = (
+        f"https://generativelanguage.googleapis.com/v1beta/"
+        f"models/gemini-2.5-flash-preview-09-2025:generateContent"
+        f"?key={gemini_api_key}"
+    )
+
+    system_prompt = (
+        "You are an expert translator and OCR post-processor specialising in "
+        "historical Modi Lipi script and Devanagari text. "
+        "You will be given Devanagari text that was produced by an OCR system "
+        "and may contain minor spelling errors or misrecognised characters. "
+        "Your task is to:\n"
+        "1. Contextually correct any obvious OCR spelling mistakes in the "
+        "Devanagari text using your knowledge of Marathi and Devanagari "
+        "vocabulary.\n"
+        f"2. Translate the corrected Devanagari text into {target_language}.\n"
+        "3. Return ONLY the final translated text with no extra commentary, "
+        "preamble, or explanations."
+    )
+
+    user_message = (
+        f"Devanagari OCR text to correct and translate into {target_language}:\n\n"
+        f"{devanagari_text}"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": user_message}]}],
+        "systemInstruction": {
+            "parts": [{"text": system_prompt}]
+        },
+    }
+
+    try:
+        result = fetch_gemini_with_backoff(api_url, payload)
+
+        if "error" in result:
+            app.logger.error(f"Gemini API call failed: {result.get('details', 'Unknown error')}")
+            return jsonify({
+                "error": result.get("error", "Failed to get response from Gemini"),
+                "details": result.get('details'),
+            }), 500
+
+        translated_text = result['candidates'][0]['content']['parts'][0]['text']
+
+        if not translated_text:
+            return jsonify({"error": "No translation received from model."}), 500
+
+        app.logger.info(f"Successfully translated text to {target_language}.")
+        return jsonify({
+            "translated_text": translated_text,
+            "target_language": target_language,
+        }), 200
+
+    except (KeyError, IndexError, TypeError) as e:
+        app.logger.error(f"Failed to parse Gemini response: {e}")
+        app.logger.error(f"Full Gemini response: {result}")
+        return jsonify({"error": "Failed to parse model's answer. See server logs."}), 500
+    except Exception as e:
+        app.logger.error(f"Unexpected error in /api/translate: {e}")
+        return jsonify({"error": f"An internal server error occurred: {e}"}), 500
+
+
 @app.route('/api/ask-gemini', methods=['POST'])
 def ask_gemini_route():
     """
-    API endpoint that takes a context and a question for the Gemini API.
+    General Q&A endpoint – takes a context and a question and returns
+    an answer grounded in that context.
     """
     app.logger.info("Received request at /api/ask-gemini")
     
@@ -244,7 +414,11 @@ def ask_gemini_route():
     if not context or not question:
         return jsonify({"error": "Missing 'context' or 'question'"}), 400
     
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={gemini_api_key}"
+    api_url = (
+        f"https://generativelanguage.googleapis.com/v1beta/"
+        f"models/gemini-2.5-flash-preview-09-2025:generateContent"
+        f"?key={gemini_api_key}"
+    )
 
     system_prompt = (
         "You are a helpful assistant. Answer the user's question based ONLY "
@@ -284,21 +458,27 @@ def ask_gemini_route():
         app.logger.error(f"An unexpected error occurred in Gemini route: {str(e)}")
         return jsonify({"error": f"An internal server error occurred: {str(e)}"}), 500
 
+
 # --- Run Server ---
 if __name__ == '__main__':
     print("--- Starting Server ---")
     
     # 1. Load Gemini API Key
     if not load_api_key():
-        print("Warning: Could not load Gemini API key. The /api/ask-gemini endpoint will fail.")
+        print("Warning: Could not load Gemini API key. The translation endpoints will fail.")
         
     # 2. Load the custom OCR model
     if not load_ocr_model():
         print("FATAL ERROR: Could not load the OCR model. The server cannot run.")
     else:
         print("--- OCR Model Ready ---")
+        if LAYOUT_ANALYSIS_AVAILABLE:
+            print("--- Full-Page Layout Analysis: ENABLED ---")
+        else:
+            print("--- Full-Page Layout Analysis: DISABLED (layout_analysis.py not found) ---")
         print(f"Starting Flask server at http://127.0.0.1:5000")
         print("API is ready to accept file uploads and Gemini requests.")
         # use_reloader=False is important to prevent Flask from loading the model twice
         app.run(debug=True, port=5000, use_reloader=False)
+
 

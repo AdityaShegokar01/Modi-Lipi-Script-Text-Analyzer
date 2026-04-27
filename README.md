@@ -130,6 +130,7 @@ Script-Text-Analyzer/
 │
 ├── app.py                  # Flask application
 ├── model.py                # CRNN model definition
+├── ocr_utils.py            # Shared OCR utilities (CTC decode, safe load)
 ├── dataset.py              # Custom OCR dataset and preprocessing
 ├── train.py                # Training script
 ├── evaluate.py             # CER/WER evaluation script

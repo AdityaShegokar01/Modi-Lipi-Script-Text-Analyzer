@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 
 from dataset import OCRDataset, CharacterMap, collate_fn
 from model import CRNN
+from ocr_utils import decode_ctc_output, safe_torch_load
 
 # Model parameters (MUST MATCH model.py and dataset.py)
 IMG_HEIGHT = 64
@@ -21,31 +22,6 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=8, help="Evaluation batch size.")
     parser.add_argument("--num-workers", type=int, default=2, help="DataLoader worker count.")
     return parser.parse_args()
-
-def load_state_dict(path, map_location):
-    try:
-        return torch.load(path, map_location=map_location, weights_only=True)
-    except TypeError:
-        return torch.load(path, map_location=map_location)
-
-def decode_ctc_output(output, char_map):
-    pred_indices = torch.argmax(output, dim=2)
-    pred_indices = pred_indices.t().cpu().numpy()
-
-    decoded_texts = []
-    for indices in pred_indices:
-        decoded_text = []
-        last_char = None
-        for idx in indices:
-            if idx == 0:
-                last_char = None
-                continue
-            char = char_map.int_to_char.get(idx, '?')
-            if char != last_char:
-                decoded_text.append(char)
-            last_char = char
-        decoded_texts.append("".join(decoded_text))
-    return decoded_texts
 
 def levenshtein_distance(seq_a, seq_b):
     """
@@ -111,7 +87,7 @@ def evaluate():
     )
 
     model = CRNN(IMG_HEIGHT, INPUT_CHANNELS, char_map.vocab_size, RNN_HIDDEN_SIZE).to(device)
-    state_dict = load_state_dict(args.model_path, map_location=device)
+    state_dict = safe_torch_load(args.model_path, map_location=device)
     if any(key.startswith("module.") for key in state_dict.keys()):
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=True)

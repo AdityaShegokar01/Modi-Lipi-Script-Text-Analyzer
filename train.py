@@ -9,6 +9,7 @@ import json
 # Import our custom modules
 from dataset import OCRDataset, CharacterMap, collate_fn
 from model import CRNN
+from ocr_utils import decode_ctc_output, safe_torch_load
 
 # --- Configuration ---
 # Data paths
@@ -46,19 +47,13 @@ def parse_args():
     parser.add_argument("--no-augment", action="store_true", help="Disable training augmentations.")
     return parser.parse_args()
 
-def load_state_dict(path, map_location):
-    try:
-        return torch.load(path, map_location=map_location, weights_only=True)
-    except TypeError:
-        return torch.load(path, map_location=map_location)
-
 def load_pretrained_weights(model, model_path):
     if not model_path:
         return
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Pretrained model not found: {model_path}")
 
-    state_dict = load_state_dict(model_path, map_location="cpu")
+    state_dict = safe_torch_load(model_path, map_location="cpu")
     if isinstance(model, nn.DataParallel):
         model_to_load = model.module
     else:
@@ -69,37 +64,6 @@ def load_pretrained_weights(model, model_path):
 
     model_to_load.load_state_dict(state_dict, strict=True)
     print(f"Loaded pretrained weights from {model_path}")
-
-def decode_ctc_output(output, char_map):
-    """
-    Decodes the raw output from the CTC model into human-readable text.
-    Uses a simple best-path decoding.
-    """
-    # output shape: (seq_len, batch_size, num_classes)
-    pred_indices = torch.argmax(output, dim=2)
-    # pred_indices shape: (seq_len, batch_size)
-    
-    # Transpose to (batch_size, seq_len)
-    pred_indices = pred_indices.t().cpu().numpy()
-    
-    decoded_texts = []
-    
-    for indices in pred_indices:
-        decoded_text = []
-        last_char = None
-        for idx in indices:
-            if idx == 0: # 0 is the CTC <BLANK> token
-                last_char = None
-                continue
-            
-            char = char_map.int_to_char.get(idx, '?')
-            
-            if char != last_char:
-                decoded_text.append(char)
-            last_char = char
-            
-        decoded_texts.append("".join(decoded_text))
-    return decoded_texts
 
 def train(args):
     # Set device

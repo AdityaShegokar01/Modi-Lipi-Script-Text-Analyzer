@@ -17,6 +17,7 @@ try:
     from model import CRNN
     from dataset import CharacterMap, ResizeAndPad
     from preprocessing import extract_line_images
+    from ocr_utils import decode_ctc_output
 except ImportError:
     print("="*50)
     print("ERROR: model.py, dataset.py, or preprocessing.py not found.")
@@ -131,22 +132,8 @@ def _decode_single_line(image_pil):
     with torch.no_grad():
         outputs = model(image_tensor)
 
-    # outputs shape: (seq_len, batch, nclass)
-    pred_indices = torch.argmax(outputs, dim=2)
-    pred_indices = pred_indices.t().cpu().numpy()[0]  # first item in batch
-
-    decoded_text = []
-    last_char = None
-    for idx in pred_indices:
-        if idx == 0:  # 0 is the CTC <BLANK> token
-            last_char = None
-            continue
-        char = char_map.int_to_char.get(idx, '?')
-        if char != last_char:
-            decoded_text.append(char)
-        last_char = char
-
-    return "".join(decoded_text)
+    decoded_texts = decode_ctc_output(outputs, char_map)
+    return decoded_texts[0] if decoded_texts else ""
 
 
 def predict_ocr(image_file_storage):

@@ -155,7 +155,7 @@ Improve robustness for degraded manuscripts
  
 Extend support to other historical scripts
 
-Add CRAFT/DBNet detectors for more complex layouts beyond PaddleOCR
+Add CRAFT/DBNet alternatives and improved line grouping for complex layouts
 
 # ▶️ How to Run the Project :
 

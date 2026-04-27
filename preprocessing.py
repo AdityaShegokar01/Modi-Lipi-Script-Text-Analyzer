@@ -5,7 +5,7 @@ from PIL import Image
 
 try:
     from paddleocr import PaddleOCR
-except Exception:
+except ImportError:
     PaddleOCR = None
 
 PADDLEOCR_LANG = os.getenv("PADDLEOCR_LANG", "en")

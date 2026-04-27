@@ -42,6 +42,16 @@ def decode_ctc_output(output, char_map):
     return decoded_texts
 
 def levenshtein_distance(seq_a, seq_b):
+    """
+    Computes the minimum edit distance between two sequences.
+
+    Args:
+        seq_a: First sequence (string or list of tokens).
+        seq_b: Second sequence (string or list of tokens).
+
+    Returns:
+        Integer edit distance.
+    """
     if seq_a == seq_b:
         return 0
     if len(seq_a) == 0:

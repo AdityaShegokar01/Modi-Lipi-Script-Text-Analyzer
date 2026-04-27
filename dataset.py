@@ -116,7 +116,12 @@ class ResizeAndPad:
 
 class AddGaussianNoise:
     """
-    Adds gaussian noise to a tensor image with probability p.
+    Adds gaussian noise to a tensor image.
+
+    Args:
+        mean: Mean of the gaussian noise (default 0.0).
+        std: Standard deviation of the gaussian noise (default 0.05).
+        p: Probability of applying the noise (default 0.3).
     """
     def __init__(self, mean=0.0, std=0.05, p=0.3):
         self.mean = mean
@@ -124,7 +129,7 @@ class AddGaussianNoise:
         self.p = p
 
     def __call__(self, tensor):
-        if random.random() > self.p:
+        if random.random() >= self.p:
             return tensor
         noise = torch.randn_like(tensor) * self.std + self.mean
         tensor = tensor + noise

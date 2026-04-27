@@ -164,7 +164,8 @@ def _extract_line_images_paddleocr(gray, padding):
     try:
         # Detection only: no recognition or angle classification for line grouping.
         result = ocr.ocr(gray, det=True, rec=False, cls=False)
-    except Exception:
+    except Exception as e:
+        print(f"PaddleOCR detection failed: {e}")
         return None
 
     if not result or not result[0]:

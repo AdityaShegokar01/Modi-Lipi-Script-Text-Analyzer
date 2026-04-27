@@ -202,6 +202,8 @@ export LINE_DETECTION_METHOD=paddleocr
 export PADDLEOCR_LANG=en
 ```
 
+`PADDLEOCR_LANG` should be a PaddleOCR language code (for example, `en` for detection defaults).
+
 To disable deskewing, set:
 
 ```

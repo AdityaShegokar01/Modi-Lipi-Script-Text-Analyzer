@@ -8,19 +8,20 @@ import os
 import json
 import unicodedata
 
-GAUSSIAN_NOISE_MEAN = 0.0
-GAUSSIAN_NOISE_STD = 0.05
-GAUSSIAN_NOISE_PROB = 0.3
-AUGMENT_BLUR_PROB = 0.3
-AUGMENT_BLUR_SIGMA = (0.1, 2.0)
-AUGMENT_COLORJITTER_PROB = 0.3
+# Augmentation controls for synthetic-to-real robustness tuning.
+GAUSSIAN_NOISE_MEAN = 0.0          # mean for additive gaussian noise
+GAUSSIAN_NOISE_STD = 0.05          # noise standard deviation
+GAUSSIAN_NOISE_PROB = 0.3          # probability of applying noise
+AUGMENT_BLUR_PROB = 0.3            # probability of gaussian blur
+AUGMENT_BLUR_SIGMA = (0.1, 2.0)    # blur sigma range
+AUGMENT_COLORJITTER_PROB = 0.3     # probability of brightness/contrast jitter
 AUGMENT_COLORJITTER_BRIGHTNESS = 0.3
 AUGMENT_COLORJITTER_CONTRAST = 0.3
-AUGMENT_AFFINE_PROB = 0.3
-AUGMENT_AFFINE_DEGREES = 2
+AUGMENT_AFFINE_PROB = 0.3          # probability of affine jitter
+AUGMENT_AFFINE_DEGREES = 2         # rotation in degrees
 AUGMENT_AFFINE_TRANSLATE = (0.02, 0.02)
 AUGMENT_AFFINE_SHEAR = 2
-AUGMENT_PERSPECTIVE_PROB = 0.3
+AUGMENT_PERSPECTIVE_PROB = 0.3     # probability of perspective warp
 AUGMENT_PERSPECTIVE_DISTORTION = 0.2
 
 class CharacterMap:

@@ -8,6 +8,21 @@ import os
 import json
 import unicodedata
 
+GAUSSIAN_NOISE_MEAN = 0.0
+GAUSSIAN_NOISE_STD = 0.05
+GAUSSIAN_NOISE_PROB = 0.3
+AUGMENT_BLUR_PROB = 0.3
+AUGMENT_BLUR_SIGMA = (0.1, 2.0)
+AUGMENT_COLORJITTER_PROB = 0.3
+AUGMENT_COLORJITTER_BRIGHTNESS = 0.3
+AUGMENT_COLORJITTER_CONTRAST = 0.3
+AUGMENT_AFFINE_PROB = 0.3
+AUGMENT_AFFINE_DEGREES = 2
+AUGMENT_AFFINE_TRANSLATE = (0.02, 0.02)
+AUGMENT_AFFINE_SHEAR = 2
+AUGMENT_PERSPECTIVE_PROB = 0.3
+AUGMENT_PERSPECTIVE_DISTORTION = 0.2
+
 class CharacterMap:
     """
     Manages the mapping between characters and integers.
@@ -154,13 +169,24 @@ class OCRDataset(Dataset):
         tensor_augment_transforms = []
         if augment:
             augment_transforms = [
-                T.RandomApply([T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.3),
-                T.RandomApply([T.ColorJitter(brightness=0.3, contrast=0.3)], p=0.3),
-                T.RandomApply([T.RandomAffine(degrees=2, translate=(0.02, 0.02), shear=2, fill=0)], p=0.3),
-                T.RandomPerspective(distortion_scale=0.2, p=0.3),
+                T.RandomApply([T.GaussianBlur(kernel_size=3, sigma=AUGMENT_BLUR_SIGMA)], p=AUGMENT_BLUR_PROB),
+                T.RandomApply(
+                    [T.ColorJitter(brightness=AUGMENT_COLORJITTER_BRIGHTNESS, contrast=AUGMENT_COLORJITTER_CONTRAST)],
+                    p=AUGMENT_COLORJITTER_PROB
+                ),
+                T.RandomApply(
+                    [T.RandomAffine(
+                        degrees=AUGMENT_AFFINE_DEGREES,
+                        translate=AUGMENT_AFFINE_TRANSLATE,
+                        shear=AUGMENT_AFFINE_SHEAR,
+                        fill=0
+                    )],
+                    p=AUGMENT_AFFINE_PROB
+                ),
+                T.RandomPerspective(distortion_scale=AUGMENT_PERSPECTIVE_DISTORTION, p=AUGMENT_PERSPECTIVE_PROB),
             ]
             tensor_augment_transforms = [
-                AddGaussianNoise(mean=0.0, std=0.05, p=0.3)
+                AddGaussianNoise(mean=GAUSSIAN_NOISE_MEAN, std=GAUSSIAN_NOISE_STD, p=GAUSSIAN_NOISE_PROB)
             ]
 
         self.transform = T.Compose([

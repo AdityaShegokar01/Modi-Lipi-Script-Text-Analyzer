@@ -22,6 +22,12 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=2, help="DataLoader worker count.")
     return parser.parse_args()
 
+def load_state_dict(path, map_location):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
 def decode_ctc_output(output, char_map):
     pred_indices = torch.argmax(output, dim=2)
     pred_indices = pred_indices.t().cpu().numpy()
@@ -105,7 +111,7 @@ def evaluate():
     )
 
     model = CRNN(IMG_HEIGHT, INPUT_CHANNELS, char_map.vocab_size, RNN_HIDDEN_SIZE).to(device)
-    state_dict = torch.load(args.model_path, map_location=device)
+    state_dict = load_state_dict(args.model_path, map_location=device)
     if any(key.startswith("module.") for key in state_dict.keys()):
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=True)

@@ -9,6 +9,9 @@ except ImportError:
     PaddleOCR = None
 
 PADDLEOCR_LANG = os.getenv("PADDLEOCR_LANG", "en")
+DEFAULT_BOX_HEIGHT = 10
+MIN_LINE_GROUPING_THRESHOLD = 10
+LINE_GROUPING_FACTOR = 0.6
 _paddleocr_instance = None
 
 def _get_paddleocr():
@@ -16,6 +19,7 @@ def _get_paddleocr():
     if PaddleOCR is None:
         return None
     if _paddleocr_instance is None:
+        # Angle classification is disabled because deskewing is handled separately.
         _paddleocr_instance = PaddleOCR(use_angle_cls=False, lang=PADDLEOCR_LANG, show_log=False)
     return _paddleocr_instance
 
@@ -125,8 +129,8 @@ def _group_boxes_by_line(boxes, image_shape):
         box_info.append((x1, y1, x2, y2, (y1 + y2) / 2, h))
 
     box_info.sort(key=lambda b: b[4])
-    median_height = np.median(heights) if heights else 10
-    threshold = max(10, median_height * 0.6)
+    median_height = np.median(heights) if heights else DEFAULT_BOX_HEIGHT
+    threshold = max(MIN_LINE_GROUPING_THRESHOLD, median_height * LINE_GROUPING_FACTOR)
 
     line_groups = []
     current_group = [box_info[0]]
@@ -155,6 +159,7 @@ def _extract_line_images_paddleocr(gray, padding):
         return None
 
     try:
+        # Detection only: no recognition or angle classification for line grouping.
         result = ocr.ocr(gray, det=True, rec=False, cls=False)
     except Exception:
         return None

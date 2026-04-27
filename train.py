@@ -46,13 +46,19 @@ def parse_args():
     parser.add_argument("--no-augment", action="store_true", help="Disable training augmentations.")
     return parser.parse_args()
 
+def load_state_dict(path, map_location):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
 def load_pretrained_weights(model, model_path):
     if not model_path:
         return
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Pretrained model not found: {model_path}")
 
-    state_dict = torch.load(model_path, map_location="cpu")
+    state_dict = load_state_dict(model_path, map_location="cpu")
     if isinstance(model, nn.DataParallel):
         model_to_load = model.module
     else:

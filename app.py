@@ -16,10 +16,11 @@ import torchvision.transforms as T
 try:
     from model import CRNN
     from dataset import CharacterMap, ResizeAndPad
+    from preprocessing import extract_line_images
 except ImportError:
     print("="*50)
-    print("ERROR: model.py and dataset.py not found.")
-    print("Please make sure model.py and dataset.py are in the same folder as app.py")
+    print("ERROR: model.py, dataset.py, or preprocessing.py not found.")
+    print("Please make sure these files are in the same folder as app.py")
     print("="*50)
     exit(1)
 
@@ -115,50 +116,64 @@ def load_api_key():
         app.logger.error(f"FATAL: {API_KEY_FILE} not found. Please create it.")
         return False
 
+def _decode_single_line(image_pil):
+    """
+    Runs the CRNN model on a single PIL line image and returns the decoded text.
+    """
+    image_tensor = transform(image_pil).to(device)
+    image_tensor = image_tensor.unsqueeze(0)  # add batch dimension
+
+    with torch.no_grad():
+        outputs = model(image_tensor)
+
+    # outputs shape: (seq_len, batch, nclass)
+    pred_indices = torch.argmax(outputs, dim=2)
+    pred_indices = pred_indices.t().cpu().numpy()[0]  # first item in batch
+
+    decoded_text = []
+    last_char = None
+    for idx in pred_indices:
+        if idx == 0:  # 0 is the CTC <BLANK> token
+            last_char = None
+            continue
+        char = char_map.int_to_char.get(idx, '?')
+        if char != last_char:
+            decoded_text.append(char)
+        last_char = char
+
+    return "".join(decoded_text)
+
+
 def predict_ocr(image_file_storage):
     """
-    Performs OCR on an uploaded image file storage.
+    Performs full-page OCR on an uploaded image.
+
+    The image is preprocessed with ``preprocessing.extract_line_images`` to
+    detect individual text lines. Each line is passed through the CRNN model
+    sequentially and the results are joined with newline characters to produce
+    the complete transcription.
     """
     try:
-        image = Image.open(image_file_storage).convert('L')
+        full_page_image = Image.open(image_file_storage)
     except Exception as e:
         app.logger.error(f"Failed to open image: {e}")
         return None, "Invalid image file"
 
     try:
-        # Apply the same transformations as in training
-        image_tensor = transform(image).to(device)
-        
-        # Add a batch dimension
-        image_tensor = image_tensor.unsqueeze(0)
-        
-        with torch.no_grad():
-            outputs = model(image_tensor)
-        
-        # Decode the output
-        # (seq_len, batch, nclass)
-        pred_indices = torch.argmax(outputs, dim=2)
-        # (seq_len, 1)
-        
-        pred_indices = pred_indices.t().cpu().numpy()[0] # Get first item in batch
-        
-        decoded_text = []
-        last_char = None
-        for idx in pred_indices:
-            if idx == 0: # 0 is the CTC <BLANK> token
-                last_char = None
-                continue
-            
-            char = char_map.int_to_char.get(idx, '?')
-            
-            if char != last_char:
-                decoded_text.append(char)
-            last_char = char
-        
-        final_text = "".join(decoded_text)
-        # Normalize the final output
-        final_text = unicodedata.normalize('NFC', final_text)
-        
+        # Extract individual line crops from the full page
+        line_images = extract_line_images(full_page_image)
+        app.logger.info(f"Detected {len(line_images)} text line(s) in the uploaded image.")
+
+        line_texts = []
+        for i, line_img in enumerate(line_images):
+            # Ensure grayscale for the model transform
+            line_img_gray = line_img.convert('L')
+            line_text = _decode_single_line(line_img_gray)
+            line_text = unicodedata.normalize('NFC', line_text)
+            app.logger.debug(f"Line {i+1}: {line_text!r}")
+            line_texts.append(line_text)
+
+        final_text = "\n".join(line_texts)
         return final_text, None
 
     except Exception as e:

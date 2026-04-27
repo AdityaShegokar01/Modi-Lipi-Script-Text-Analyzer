@@ -19,10 +19,11 @@ def _get_paddleocr():
     if PaddleOCR is None:
         return None
     if _paddleocr_instance is None:
-        # Angle classification is disabled because deskewing is handled separately in
-        # _deskew_image, which gives more control over rotation thresholds and keeps
-        # the detector focused only on line localization.
-        _paddleocr_instance = PaddleOCR(use_angle_cls=False, lang=PADDLEOCR_LANG, show_log=False)
+        _paddleocr_instance = PaddleOCR(
+            use_angle_cls=False,  # deskew handled by _deskew_image for tighter control
+            lang=PADDLEOCR_LANG,
+            show_log=False
+        )
     return _paddleocr_instance
 
 def _deskew_image(gray):

@@ -1,4 +1,5 @@
 import torch
+import random
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 import torchvision.transforms as T
@@ -113,11 +114,27 @@ class ResizeAndPad:
         
         return padded_tensor
 
+class AddGaussianNoise:
+    """
+    Adds gaussian noise to a tensor image with probability p.
+    """
+    def __init__(self, mean=0.0, std=0.05, p=0.3):
+        self.mean = mean
+        self.std = std
+        self.p = p
+
+    def __call__(self, tensor):
+        if random.random() > self.p:
+            return tensor
+        noise = torch.randn_like(tensor) * self.std + self.mean
+        tensor = tensor + noise
+        return torch.clamp(tensor, 0.0, 1.0)
+
 class OCRDataset(Dataset):
     """
     PyTorch Dataset for loading OCR data.
     """
-    def __init__(self, gt_file, char_map, img_height, max_img_width, channels=1):
+    def __init__(self, gt_file, char_map, img_height, max_img_width, channels=1, augment=False):
         self.gt_file = gt_file
         self.char_map = char_map
         self.lines = []
@@ -128,9 +145,20 @@ class OCRDataset(Dataset):
             print(f"Error: Ground truth file not found at {gt_file}")
             raise
 
+        augment_transforms = []
+        if augment:
+            augment_transforms = [
+                T.RandomApply([T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.3),
+                T.RandomApply([T.ColorJitter(brightness=0.3, contrast=0.3)], p=0.3),
+                T.RandomApply([T.RandomAffine(degrees=2, translate=(0.02, 0.02), shear=2, fill=0)], p=0.3),
+                T.RandomPerspective(distortion_scale=0.2, p=0.3),
+            ]
+
         self.transform = T.Compose([
             T.Grayscale(num_output_channels=channels),
+            *augment_transforms,
             ResizeAndPad(height=img_height, max_width=max_img_width, channels=channels),
+            AddGaussianNoise(mean=0.0, std=0.05, p=0.3) if augment else T.Lambda(lambda x: x),
             T.Normalize(mean=[0.5], std=[0.5]) # Normalize to [-1, 1]
         ])
 

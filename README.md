@@ -132,6 +132,7 @@ Script-Text-Analyzer/
 ├── model.py                # CRNN model definition
 ├── dataset.py              # Custom OCR dataset and preprocessing
 ├── train.py                # Training script
+├── evaluate.py             # CER/WER evaluation script
 ├── prepare_dataset.py      # Dataset preparation utilities
 ├── data-generate.py        # Custom dataset generation script
 ├── char_map.json           # Character to index mapping
@@ -142,16 +143,18 @@ Script-Text-Analyzer/
 └── test.txt
 
 # 🚀 Future Improvements
-
+ 
 Add real scanned and handwritten Modi Lipi documents
-
+ 
 Apply data augmentation (noise, blur, distortion)
-
+ 
 Train with multiple fonts and layouts
-
+ 
 Improve robustness for degraded manuscripts
-
+ 
 Extend support to other historical scripts
+
+Add learned text-line detection (CRAFT/DBNet/PaddleOCR) for complex layouts
 
 # ▶️ How to Run the Project :
 
@@ -173,7 +176,7 @@ Ensure that the trained model is present in the models/ folder
 Upload a Modi Lipi image from the Dataset/ folder
 
 5️⃣ Enable Translation 
-
+ 
 To translate the extracted Devanagari text into other languages:
 
 Create a file named api_key.txt in the project root
@@ -186,6 +189,40 @@ api_key.txt
 └── YOUR_GEMINI_API_KEY
 
 Once added, the app will enable multilingual translation.
+
+# 🔍 Optional Line Detection Upgrade
+
+By default, the app uses an OpenCV-based line detector. To enable stronger text-line detection,
+install PaddleOCR and set an environment variable before running the app:
+
+```
+pip install paddleocr
+export LINE_DETECTION_METHOD=paddleocr
+```
+
+To disable deskewing, set:
+
+```
+export LINE_DETECTION_DESKEW=false
+```
+
+# 🧪 Evaluate CER/WER
+
+Compute character and word error rates on `test.txt`:
+
+```
+python evaluate.py --test-file test.txt --char-map char_map.json --model-path models/best_model.pth
+```
+
+# 🎯 Fine-Tuning on Real Data
+
+After collecting real scanned/handwritten samples, regenerate the splits (or provide custom files)
+and fine-tune from the existing model weights:
+
+```
+python prepare_dataset.py
+python train.py --train-file train.txt --val-file validation.txt --pretrained models/best_model.pth --learning-rate 5e-5
+```
 
 #  Dependencies
 

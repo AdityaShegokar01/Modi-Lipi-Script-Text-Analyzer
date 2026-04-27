@@ -1,3 +1,4 @@
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -30,6 +31,39 @@ NUM_EPOCHS = 100
 LEARNING_RATE = 0.0001 # 1e-4
 # ---------------------
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train or fine-tune the CRNN OCR model.")
+    parser.add_argument("--train-file", default=TRAIN_GT_FILE, help="Path to training ground-truth file.")
+    parser.add_argument("--val-file", default=VALIDATION_GT_FILE, help="Path to validation ground-truth file.")
+    parser.add_argument("--char-map", default=CHAR_MAP_FILE, help="Path to the character map JSON.")
+    parser.add_argument("--model-dir", default=MODEL_SAVE_DIR, help="Directory to save model checkpoints.")
+    parser.add_argument("--pretrained", default=None, help="Optional path to a pretrained model for fine-tuning.")
+    parser.add_argument("--rebuild-char-map", action="store_true", help="Rebuild char_map.json from training data.")
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS, help="Number of training epochs.")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Training batch size.")
+    parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE, help="Learning rate.")
+    parser.add_argument("--num-workers", type=int, default=2, help="DataLoader worker count.")
+    parser.add_argument("--no-augment", action="store_true", help="Disable training augmentations.")
+    return parser.parse_args()
+
+def load_pretrained_weights(model, model_path):
+    if not model_path:
+        return
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Pretrained model not found: {model_path}")
+
+    state_dict = torch.load(model_path, map_location="cpu")
+    if isinstance(model, nn.DataParallel):
+        model_to_load = model.module
+    else:
+        model_to_load = model
+
+    if any(key.startswith("module.") for key in state_dict.keys()):
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+
+    model_to_load.load_state_dict(state_dict, strict=True)
+    print(f"Loaded pretrained weights from {model_path}")
+
 def decode_ctc_output(output, char_map):
     """
     Decodes the raw output from the CTC model into human-readable text.
@@ -61,42 +95,48 @@ def decode_ctc_output(output, char_map):
         decoded_texts.append("".join(decoded_text))
     return decoded_texts
 
-def train():
+def train(args):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
     # --- 1. Prepare Data ---
     print("Building character map...")
-    if not os.path.exists(CHAR_MAP_FILE):
-        char_map_builder = CharacterMap(TRAIN_GT_FILE, CHAR_MAP_FILE)
+    if args.rebuild_char_map or not os.path.exists(args.char_map):
+        char_map_builder = CharacterMap(args.train_file, args.char_map)
     else:
         char_map_builder = CharacterMap() # Create empty map
-        char_map_builder.load_map(CHAR_MAP_FILE) # Load from file
-        print(f"Character map loaded from {CHAR_MAP_FILE} (vocab size: {char_map_builder.vocab_size})")
+        char_map_builder.load_map(args.char_map) # Load from file
+        print(f"Character map loaded from {args.char_map} (vocab size: {char_map_builder.vocab_size})")
         
     vocab_size = char_map_builder.vocab_size
     print(f"Vocabulary size: {vocab_size}")
 
     # Create datasets
     print("Loading datasets...")
-    train_dataset = OCRDataset(TRAIN_GT_FILE, char_map_builder, IMG_HEIGHT, MAX_IMG_WIDTH)
-    val_dataset = OCRDataset(VALIDATION_GT_FILE, char_map_builder, IMG_HEIGHT, MAX_IMG_WIDTH)
+    train_dataset = OCRDataset(
+        args.train_file,
+        char_map_builder,
+        IMG_HEIGHT,
+        MAX_IMG_WIDTH,
+        augment=not args.no_augment
+    )
+    val_dataset = OCRDataset(args.val_file, char_map_builder, IMG_HEIGHT, MAX_IMG_WIDTH)
 
     # Use num_workers=2 for Colab
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         shuffle=True,
-        num_workers=2, 
+        num_workers=args.num_workers,
         collate_fn=collate_fn,
         pin_memory=True
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         shuffle=False,
-        num_workers=2,
+        num_workers=args.num_workers,
         collate_fn=collate_fn,
         pin_memory=True
     )
@@ -111,8 +151,10 @@ def train():
         print(f"Using {torch.cuda.device_count()} GPUs!")
         model = nn.DataParallel(model)
 
+    load_pretrained_weights(model, args.pretrained)
+
     criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     
     # Scheduler to lower LR if training gets stuck
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -122,14 +164,14 @@ def train():
         factor=0.1
     )
 
-    os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
-    best_model_path = os.path.join(MODEL_SAVE_DIR, BEST_MODEL_NAME)
+    os.makedirs(args.model_dir, exist_ok=True)
+    best_model_path = os.path.join(args.model_dir, BEST_MODEL_NAME)
     
     best_val_loss = float('inf')
 
     # --- 3. Training Loop ---
-    print(f"Starting training for {NUM_EPOCHS} epochs...")
-    for epoch in range(NUM_EPOCHS):
+    print(f"Starting training for {args.epochs} epochs...")
+    for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         
@@ -158,7 +200,7 @@ def train():
             train_loss += loss.item()
 
             if (i + 1) % 20 == 0:
-                print(f"Epoch [{epoch+1}/{NUM_EPOCHS}], Step [{i+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
+                print(f"Epoch [{epoch+1}/{args.epochs}], Step [{i+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
 
         avg_train_loss = train_loss / len(train_loader)
 
@@ -228,5 +270,6 @@ def train():
     print("Training complete.")
 
 if __name__ == "__main__":
-    train()
+    args = parse_args()
+    train(args)
 

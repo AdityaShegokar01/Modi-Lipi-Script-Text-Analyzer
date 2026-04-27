@@ -36,6 +36,8 @@ RNN_HIDDEN_SIZE = 512
 MODEL_PATH = os.path.join('models', 'best_model.pth')
 CHAR_MAP_PATH = 'char_map.json'
 API_KEY_FILE = 'api_key.txt'
+LINE_DETECTION_METHOD = os.getenv("LINE_DETECTION_METHOD", "auto")
+LINE_DETECTION_DESKEW = os.getenv("LINE_DETECTION_DESKEW", "true").lower() in {"1", "true", "yes"}
 
 # --- App Setup ---
 app = Flask(__name__)
@@ -161,7 +163,11 @@ def predict_ocr(image_file_storage):
 
     try:
         # Extract individual line crops from the full page
-        line_images = extract_line_images(full_page_image)
+        line_images = extract_line_images(
+            full_page_image,
+            method=LINE_DETECTION_METHOD,
+            deskew=LINE_DETECTION_DESKEW
+        )
         app.logger.info(f"Detected {len(line_images)} text line(s) in the uploaded image.")
 
         line_texts = []

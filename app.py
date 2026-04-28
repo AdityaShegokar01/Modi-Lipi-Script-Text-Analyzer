@@ -17,7 +17,7 @@ try:
     from model import CRNN
     from dataset import CharacterMap, ResizeAndPad
     from preprocessing import extract_line_images
-    from ocr_utils import decode_ctc_output
+    from ocr_utils import decode_ctc_output, safe_torch_load
 except ImportError:
     print("="*50)
     print("ERROR: model.py, dataset.py, or preprocessing.py not found.")
@@ -90,7 +90,7 @@ def load_ocr_model():
             app.logger.error(f"Please download 'best_model.pth' from Colab and put it in a folder named 'models'")
             return False
             
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.load_state_dict(safe_torch_load(MODEL_PATH, map_location=device))
         model.eval()
         app.logger.info(f"Trained OCR model loaded from {MODEL_PATH}")
 

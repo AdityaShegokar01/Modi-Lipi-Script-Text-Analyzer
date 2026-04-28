@@ -5,7 +5,7 @@ import unicodedata
 
 # --- Configuration ---
 # Set the path to your single dataset folder
-DATASET_DIR = 'dataset' 
+DATASET_DIR = 'Dataset' 
 IMAGE_EXTENSION = '.png'
 # Set your specific text file extension
 TEXT_EXTENSION = '.gt.txt' 

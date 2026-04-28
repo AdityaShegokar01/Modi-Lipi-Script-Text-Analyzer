@@ -49,7 +49,7 @@ class CharacterMap:
             
             for i, char in enumerate(sorted(list(charset)), 1):
                 self.char_to_int[char] = i
-                self.int_to_char[i] = i
+                self.int_to_char[i] = char
             
             self.vocab_size = len(self.char_to_int)
             self.save_map(save_path)
